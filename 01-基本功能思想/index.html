@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<meta http-equiv="X-UA-Compatible" content="IE=edge">
+	<title></title>
+	<link rel="stylesheet" href="">
+	<style type="text/css">
+	.vClass{color:red;}
+	</style>
+</head>
+<body>
+	<div id="app">
+		<p v-text="msg | capitalize"></p>
+		<span v-text="value"></span>
+		<div v-show="showDiv">show me</div>
+		<div v-class="vClass">v-class</div>
+	</div>
+
+	<script type="text/javascript">
+		var prefix = 'v';
+
+		//对应v-后面的各种指令，好处是:完全分离出来，专门处理对应的指令，便于扩展和维护
+		var Directives = {
+			text: function(el, value) {
+				el.textContent = value;
+			},
+			show: function(el, status) {
+				el.style.display = status ? 'block' : 'none';
+			},
+			class: function(el, className) {
+				el.classList.add(className);
+			}
+		};
+
+		var Filters = {
+			capitalize: function(value) {
+				value = value.toString();
+				return value.charAt(0).toUpperCase() + value.slice(1);
+			}
+		};
+
+		function Vue(options) {
+			options = options || {};
+
+			//定义观察器时，会把数据全部添加到这里
+			this.data = {};
+
+			var data = options.data;
+
+				//检索的标识'[v-text],[v-show],[v-class]'
+			var selector = Object.keys(Directives).map(function(prop) {
+					return '[' + prefix + '-' + prop + ']';
+				}).join(),
+				root = document.getElementById(options.el),
+				//通过下面方法获取所有应用了v-属性的元素
+				els = root.querySelectorAll(selector),
+				self = this,
+				//映射表容器
+				// {
+				// 		msg: {
+				// 			value: 'hello world',
+				// 			directives: [
+				// 				{
+				// 					attr: {
+				// 						name: 'text',
+				// 						value: 'msg'
+				// 					},
+				// 					key: 'msg',
+				//					filters: []
+				// 					update: Directives['text']
+				// 				}
+				// 			]
+				// 		}
+				// }
+				bindings = {};
+
+			//对检索出来的每个元素进行处理
+			[].forEach.call(els, processNode);
+
+			//往this.data里面设置数据，此时会触发观察期里面的set方法
+			for(var key in data) {
+				this.data[key] = data[key];
+			}
+
+			return this;
+
+
+			function processNode(el) {
+				componsedAttrbutes(el.attributes).forEach(function(attr) {
+					var directive = parseDirectiveWithAttr(attr);
+
+					if(directive) {
+						createMapTable(el, directive, bindings);
+					}
+				})	
+			}
+
+			//将类数组的属性组装成对象数组，便于处理
+			function componsedAttrbutes(attrs) {
+				return [].map.call(attrs, function(attr) {
+					return {
+						name: attr.name,
+						value: attr.value
+					}
+				})
+			}
+
+			//将属性分离出指令和值，并获取该指令的处理方法，组装成directive
+			function parseDirectiveWithAttr(attr) {
+				var name = attr.name,
+					value = attr.value,
+				 	directiveProp = name.split(prefix + '-')[1],
+				 	splitArr = value.split('|'),
+				 	key = splitArr[0].trim(),//获取分离出|及过滤器的值 
+				 	//过滤器为一数组，因为可以是多个
+				 	filters = splitArr.slice(1).map(function(filter) {
+				 		return Filters[filter.trim()];
+				 	});
+
+				//这里判断key是否存在的原因是:排除非v-这类的属性
+				return key ? {
+					attr: attr,
+					key: key,
+					filters: filters || null,
+					update: Directives[directiveProp]
+				} : null;
+			}
+
+			//创建映射表，存放到bindings中
+			function createMapTable(el, directive, bindings) {
+				//删除自定义的v-指令属性
+				el.removeAttribute(directive.attr.name);
+
+				var key = directive.key,
+					binding = bindings[key];
+
+				if(!binding) {
+					binding = bindings[key] = {
+						value: undefined,
+						directives: []
+					}
+				}
+
+				directive.el = el;
+
+				binding.directives.push(directive);
+
+				//Object.defineProperty对每一个属性只能定义一次,否则报错
+				if(!self.hasOwnProperty(key)) {
+					addObservation(key, binding);
+				}
+			}
+
+			//添加观察器
+			function addObservation(key, binding) {
+				Object.defineProperty(self.data, key, {
+					get: function() {
+						return binding[key];
+					},
+					set: function(newVal) {
+						var value = newVal;
+
+						if(value !== binding[key]) {
+							binding[key] = value;
+
+							//在设置新值时，触发对应的指令去更新
+							binding.directives.forEach(function(directive) {
+								//如果该key有过滤器，则处理过滤器功能
+								if(directive.filters) {
+									value = handleFilters(value, directive.filters);
+								}
+								directive.update(
+									directive.el,
+									value
+								)
+							});
+						}
+					}
+				})
+			}
+
+			//过滤器处理
+			function handleFilters(value, filters) {
+				filters.forEach(function(filter) {
+					value = filter(value);
+				});
+
+				return value;
+			}
+		}
+
+		var vm = new Vue({
+			el: 'app',
+			data: {
+				msg: 'hello world',
+				value: 100,
+				showDiv: true,
+				vClass: 'vClass'
+			}
+		});
+		console.log(vm)
+
+		setTimeout(function() {
+			vm.data.showDiv = false
+		}, 2000)
+	</script>
+</body>
+</html>
